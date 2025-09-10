@@ -414,7 +414,7 @@ export default function Oscilloscope({
         
         // Draw min/max envelope for detail
         if (Math.abs(maxY - minY) > 1) {
-          ctx.globalAlpha = 0.4
+          ctx.globalAlpha = 0.6  // Slightly brighter envelope when paused
           ctx.beginPath()
           ctx.moveTo(x, minY)
           ctx.lineTo(x, maxY)
@@ -437,12 +437,13 @@ export default function Oscilloscope({
       }
     }
 
+    // Full brightness when paused - set BEFORE stroke
+    ctx.globalAlpha = 1  // Full opacity when paused
     ctx.stroke()
 
-    // Full brightness when paused
+    // Add glow effect at full brightness
     ctx.shadowBlur = 6
     ctx.shadowColor = color
-    ctx.globalAlpha = 1  // Full opacity when paused
     ctx.stroke()
     ctx.shadowBlur = 0
   }
