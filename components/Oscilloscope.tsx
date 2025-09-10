@@ -281,10 +281,14 @@ export default function Oscilloscope({
           if (sampleCount > 0) {
             avgSample /= sampleCount
             
+            // Use consistent scaling for waveform
+            const centerY = height / 2
+            const amplitude = height * 0.4 // Consistent amplitude scaling
+            
             // Draw min/max envelope for detail
-            const minY = ((minSample + 1) / 2) * height
-            const maxY = ((maxSample + 1) / 2) * height
-            const avgY = ((avgSample + 1) / 2) * height
+            const minY = centerY + (minSample * amplitude)
+            const maxY = centerY + (maxSample * amplitude)
+            const avgY = centerY + (avgSample * amplitude)
             
             // Draw thin vertical line showing range
             if (Math.abs(maxY - minY) > 1) {
@@ -313,10 +317,10 @@ export default function Oscilloscope({
 
         ctx.stroke()
 
-        // Subtle glow effect - less transparency for better visibility
-        ctx.shadowBlur = 4
+        // Dimmer during playback for subtle effect
+        ctx.shadowBlur = 3
         ctx.shadowColor = color
-        ctx.globalAlpha = 0.8
+        ctx.globalAlpha = 0.6  // Dimmer during playback
         ctx.stroke()
         ctx.shadowBlur = 0
         ctx.globalAlpha = 1
@@ -381,7 +385,7 @@ export default function Oscilloscope({
     // Draw grid
     drawGrid(ctx, canvas.offsetWidth, height)
 
-    // Draw the full bar buffer with enhanced detail
+    // Draw the full bar buffer with consistent scaling
     ctx.lineWidth = lineWidth
     ctx.strokeStyle = color
     ctx.lineCap = 'round'
@@ -389,36 +393,67 @@ export default function Oscilloscope({
     ctx.beginPath()
 
     const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
+    const centerY = height / 2
+    const amplitude = height * 0.4 // Same amplitude as during playback
+    let prevY = centerY
     
     for (let x = 0; x < canvas.offsetWidth; x++) {
       // Average multiple samples for smoother display
       const startIdx = Math.floor(x * samplesPerPixel)
       const endIdx = Math.min(startIdx + Math.ceil(samplesPerPixel), fullBarBufferRef.current.length)
       
-      let sum = 0
+      let minSample = 1
+      let maxSample = -1
+      let avgSample = 0
       let count = 0
       
       for (let i = startIdx; i < endIdx; i++) {
-        sum += fullBarBufferRef.current[i] || 0
+        const sample = fullBarBufferRef.current[i] || 0
+        minSample = Math.min(minSample, sample)
+        maxSample = Math.max(maxSample, sample)
+        avgSample += sample
         count++
       }
       
-      const avgSample = count > 0 ? sum / count : 0
-      const y = ((avgSample + 1) / 2) * height
-      
-      if (x === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
+      if (count > 0) {
+        avgSample /= count
+        
+        // Consistent scaling with playback
+        const minY = centerY + (minSample * amplitude)
+        const maxY = centerY + (maxSample * amplitude)
+        const avgY = centerY + (avgSample * amplitude)
+        
+        // Draw min/max envelope for detail
+        if (Math.abs(maxY - minY) > 1) {
+          ctx.globalAlpha = 0.4
+          ctx.beginPath()
+          ctx.moveTo(x, minY)
+          ctx.lineTo(x, maxY)
+          ctx.stroke()
+          ctx.globalAlpha = 1
+        }
+        
+        // Main waveform line
+        if (x === 0) {
+          ctx.beginPath()
+          ctx.moveTo(x, avgY)
+        } else {
+          // Smooth curve between points
+          const cpx = (x - 0.5)
+          const cpy = (prevY + avgY) / 2
+          ctx.quadraticCurveTo(cpx, prevY, x, avgY)
+        }
+        
+        prevY = avgY
       }
     }
 
     ctx.stroke()
 
-    // Subtle glow effect - full opacity when paused
-    ctx.shadowBlur = 3
+    // Full brightness when paused
+    ctx.shadowBlur = 6
     ctx.shadowColor = color
-    ctx.globalAlpha = 1
+    ctx.globalAlpha = 1  // Full opacity when paused
     ctx.stroke()
     ctx.shadowBlur = 0
   }
