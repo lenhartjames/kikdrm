@@ -29,7 +29,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   const [velocity, setVelocity] = useState<number[]>(new Array(16).fill(0.8))
   
   const sequenceRef = useRef<Tone.Sequence | null>(null)
-  const synthRef = useRef<Tone.MembraneSynth | null>(null)
+  const playerRef = useRef<Tone.Player | null>(null)
   const patternRef = useRef(pattern)
   const velocityRef = useRef(velocity)
   
@@ -43,25 +43,29 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
     velocityRef.current = velocity
   }, [velocity])
 
+  // Load the kick sample when it changes
   useEffect(() => {
-    // Initialize Tone.js synth only once
-    if (!synthRef.current) {
-      synthRef.current = new Tone.MembraneSynth({
-        pitchDecay: 0.05,
-        octaves: 10,
-        oscillator: {
-          type: "sine"
+    if (kickSample?.file_url) {
+      // Dispose of old player if exists
+      if (playerRef.current) {
+        playerRef.current.dispose()
+        playerRef.current = null
+      }
+      
+      // Create new player with the kick sample
+      const audioUrl = kickSample.file_url.startsWith('http') 
+        ? kickSample.file_url 
+        : `${window.location.origin}${kickSample.file_url}`
+      
+      playerRef.current = new Tone.Player({
+        url: audioUrl,
+        onload: () => {
+          console.log('Kick sample loaded:', audioUrl)
         },
-        envelope: {
-          attack: 0.001,
-          decay: 0.4,
-          sustain: 0.01,
-          release: 1.4,
-          attackCurve: "exponential"
+        onerror: (error) => {
+          console.error('Error loading kick sample:', error)
         }
       }).toDestination()
-      
-      console.log('MembraneSynth initialized and connected to destination')
     }
 
     return () => {
@@ -74,12 +78,12 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
           console.warn('Error cleaning up sequence:', e)
         }
       }
-      if (synthRef.current) {
-        synthRef.current.dispose()
-        synthRef.current = null
+      if (playerRef.current) {
+        playerRef.current.dispose()
+        playerRef.current = null
       }
     }
-  }, [])
+  }, [kickSample])
 
   useEffect(() => {
     Tone.Transport.bpm.value = tempo
@@ -119,17 +123,13 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
             if (onStepChange) {
               onStepChange(step)
             }
-            if (patternRef.current[step] && synthRef.current) {
+            if (patternRef.current[step] && playerRef.current) {
               console.log(`Step ${step}: pattern[${step}]=${patternRef.current[step]}, triggering at time ${time}`)
               try {
-                synthRef.current.triggerAttackRelease(
-                  "C1", 
-                  "8n", 
-                  time, 
-                  velocityRef.current[step]
-                )
+                // Start the player at the scheduled time
+                playerRef.current.start(time)
               } catch (e) {
-                console.warn('Error triggering synth:', e)
+                console.warn('Error triggering player:', e)
               }
             } else {
               console.log(`Step ${step}: pattern[${step}]=${patternRef.current[step]}, NOT triggering`)
