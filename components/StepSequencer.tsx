@@ -36,6 +36,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   // Update refs when values change
   useEffect(() => {
     patternRef.current = pattern
+    console.log('Pattern ref updated:', pattern.map((v, i) => `${i}:${v}`).join(', '))
   }, [pattern])
   
   useEffect(() => {
@@ -119,7 +120,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
               onStepChange(step)
             }
             if (patternRef.current[step] && synthRef.current) {
-              console.log(`Triggering step ${step} at time ${time}`)
+              console.log(`Step ${step}: pattern[${step}]=${patternRef.current[step]}, triggering at time ${time}`)
               try {
                 synthRef.current.triggerAttackRelease(
                   "C1", 
@@ -130,6 +131,8 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
               } catch (e) {
                 console.warn('Error triggering synth:', e)
               }
+            } else {
+              console.log(`Step ${step}: pattern[${step}]=${patternRef.current[step]}, NOT triggering`)
             }
           },
           Array.from({ length: 16 }, (_, i) => i),
@@ -184,6 +187,8 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   const toggleStep = (index: number) => {
     const newPattern = [...pattern]
     newPattern[index] = !newPattern[index]
+    console.log(`Toggling step ${index}: ${pattern[index]} -> ${newPattern[index]}`)
+    console.log('New pattern:', newPattern.map((v, i) => i % 4 === 0 ? `\n[${i}]:${v}` : `[${i}]:${v}`).join(' '))
     setPattern(newPattern)
   }
 
