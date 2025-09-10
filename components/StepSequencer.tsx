@@ -30,6 +30,17 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   
   const sequenceRef = useRef<Tone.Sequence | null>(null)
   const synthRef = useRef<Tone.MembraneSynth | null>(null)
+  const patternRef = useRef(pattern)
+  const velocityRef = useRef(velocity)
+  
+  // Update refs when values change
+  useEffect(() => {
+    patternRef.current = pattern
+  }, [pattern])
+  
+  useEffect(() => {
+    velocityRef.current = velocity
+  }, [velocity])
 
   useEffect(() => {
     // Initialize Tone.js synth
@@ -47,10 +58,17 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
         attackCurve: "exponential"
       }
     }).toDestination()
+    
+    console.log('MembraneSynth initialized and connected to destination')
 
     return () => {
-      sequenceRef.current?.dispose()
-      synthRef.current?.dispose()
+      if (sequenceRef.current) {
+        sequenceRef.current.stop()
+        sequenceRef.current.dispose()
+      }
+      if (synthRef.current) {
+        synthRef.current.dispose()
+      }
     }
   }, [])
 
@@ -62,6 +80,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   useEffect(() => {
     const handlePlayback = async () => {
       if (isPlaying) {
+        console.log('Starting playback...')
         // Clean up any existing sequence first
         if (sequenceRef.current) {
           sequenceRef.current.stop()
@@ -70,6 +89,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
         }
         
         await Tone.start()
+        console.log('Tone started, Transport state:', Tone.Transport.state)
         
         // Create sequence for 16 steps
         sequenceRef.current = new Tone.Sequence(
@@ -78,13 +98,14 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
             if (onStepChange) {
               onStepChange(step)
             }
-            if (pattern[step] && synthRef.current) {
+            if (patternRef.current[step] && synthRef.current) {
+              console.log(`Triggering step ${step} at time ${time}`)
               // Schedule the trigger slightly ahead to avoid timing conflicts
               synthRef.current.triggerAttackRelease(
                 "C1", 
                 "8n", 
                 time, 
-                velocity[step]
+                velocityRef.current[step]
               )
             }
           },
@@ -96,7 +117,9 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
         Tone.Transport.stop()
         Tone.Transport.position = 0
         Tone.Transport.start()
+        console.log('Transport started, state:', Tone.Transport.state)
       } else if (!isPlaying && sequenceRef.current) {
+        console.log('Stopping playback...')
         Tone.Transport.stop()
         Tone.Transport.position = 0
         sequenceRef.current.stop()
@@ -110,7 +133,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
     }
     
     handlePlayback()
-  }, [isPlaying, pattern, velocity])
+  }, [isPlaying]) // Remove pattern and velocity from dependencies to avoid restarts
 
   const handleReset = () => {
     setPattern(new Array(16).fill(false))
@@ -137,11 +160,19 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
     setVelocity(newVelocity)
   }
 
+  // Calculate animation duration based on BPM (one pulse per beat)
+  const pulseDuration = 60 / tempo // seconds per beat
+  
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className={cn("plugin-led", isPlaying ? "on animate-pulse-led" : "off")} />
+          <div 
+            className={cn("plugin-led", isPlaying ? "on" : "off")} 
+            style={isPlaying ? {
+              animation: `pulse-led ${pulseDuration}s linear infinite`
+            } : undefined}
+          />
           <h2 className="text-lg font-semibold">STEP SEQUENCER</h2>
         </div>
         

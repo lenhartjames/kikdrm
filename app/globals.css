@@ -133,18 +133,30 @@
 }
 
 @keyframes pulse-led {
-  0%, 100% { 
+  0% { 
     opacity: 1;
-    box-shadow: 0 0 8px currentColor;
+    box-shadow: 0 0 12px currentColor, 0 0 24px currentColor;
+    transform: scale(1.1);
+  }
+  10% {
+    opacity: 0.9;
+    box-shadow: 0 0 8px currentColor, 0 0 16px currentColor;
+    transform: scale(1.05);
   }
   50% { 
-    opacity: 0.5;
+    opacity: 0.4;
     box-shadow: 0 0 4px currentColor;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 12px currentColor, 0 0 24px currentColor;
+    transform: scale(1.1);
   }
 }
 
 .animate-pulse-led {
-  animation: pulse-led 1s ease-in-out infinite;
+  animation: pulse-led 1s linear infinite;
 }
 
 body {
