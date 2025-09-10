@@ -220,7 +220,7 @@ export default function Oscilloscope({
             // Linear interpolation between samples for smoother waveform
             const sample1 = waveform[waveformIndex] || 0
             const sample2 = waveform[Math.min(waveformIndex + 1, waveform.length - 1)] || 0
-            const interpolatedSample = sample1 + (sample2 - sample1) * fraction
+            const interpolatedSample = (sample1 + (sample2 - sample1) * fraction) * 2.5 // Apply gain to match visual amplitude
             
             // Wrap around if we've filled the buffer (continuous recording)
             const bufferIndex = writePositionRef.current % fullBarBufferRef.current.length
