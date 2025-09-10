@@ -137,23 +137,12 @@ export default function Oscilloscope({
     ctx.shadowBlur = 0
   }, [audioBuffer, isSequencerPlaying, color, backgroundColor, lineWidth, height])
 
-  // Set up Tone.js analyser when sequencer starts
+  // Set up Tone.js analyser once and keep it connected
   useEffect(() => {
-    if (isSequencerPlaying) {
-      // Create and connect Tone.js analyser with higher resolution
-      if (!toneAnalyserRef.current) {
-        toneAnalyserRef.current = new Tone.Analyser('waveform', 4096)
-        Tone.Destination.connect(toneAnalyserRef.current)
-      }
-      
-      // Don't reinitialize buffer here - it's handled in the playback state effect
-      // This preserves the buffer content across pause/resume
-    } else {
-      // Clean up Tone analyser when sequencer stops
-      if (toneAnalyserRef.current) {
-        toneAnalyserRef.current.dispose()
-        toneAnalyserRef.current = null
-      }
+    // Create and connect Tone.js analyser with higher resolution
+    if (!toneAnalyserRef.current) {
+      toneAnalyserRef.current = new Tone.Analyser('waveform', 4096)
+      Tone.Destination.connect(toneAnalyserRef.current)
     }
     
     return () => {
@@ -162,7 +151,7 @@ export default function Oscilloscope({
         toneAnalyserRef.current = null
       }
     }
-  }, [isSequencerPlaying])
+  }, []) // Only create once on mount
 
   // Clear buffer only when playback starts from stopped state
   useEffect(() => {

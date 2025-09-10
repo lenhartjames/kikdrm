@@ -43,31 +43,39 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   }, [velocity])
 
   useEffect(() => {
-    // Initialize Tone.js synth
-    synthRef.current = new Tone.MembraneSynth({
-      pitchDecay: 0.05,
-      octaves: 10,
-      oscillator: {
-        type: "sine"
-      },
-      envelope: {
-        attack: 0.001,
-        decay: 0.4,
-        sustain: 0.01,
-        release: 1.4,
-        attackCurve: "exponential"
-      }
-    }).toDestination()
-    
-    console.log('MembraneSynth initialized and connected to destination')
+    // Initialize Tone.js synth only once
+    if (!synthRef.current) {
+      synthRef.current = new Tone.MembraneSynth({
+        pitchDecay: 0.05,
+        octaves: 10,
+        oscillator: {
+          type: "sine"
+        },
+        envelope: {
+          attack: 0.001,
+          decay: 0.4,
+          sustain: 0.01,
+          release: 1.4,
+          attackCurve: "exponential"
+        }
+      }).toDestination()
+      
+      console.log('MembraneSynth initialized and connected to destination')
+    }
 
     return () => {
+      // Cleanup on unmount
       if (sequenceRef.current) {
-        sequenceRef.current.stop()
-        sequenceRef.current.dispose()
+        try {
+          sequenceRef.current.stop()
+          sequenceRef.current.dispose()
+        } catch (e) {
+          console.warn('Error cleaning up sequence:', e)
+        }
       }
       if (synthRef.current) {
         synthRef.current.dispose()
+        synthRef.current = null
       }
     }
   }, [])
@@ -81,17 +89,29 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
     const handlePlayback = async () => {
       if (isPlaying) {
         console.log('Starting playback...')
-        // Clean up any existing sequence first
+        
+        // Ensure Tone.js is started
+        await Tone.start()
+        
+        // Clean up any existing sequence
         if (sequenceRef.current) {
-          sequenceRef.current.stop()
-          sequenceRef.current.dispose()
+          try {
+            sequenceRef.current.stop()
+            sequenceRef.current.dispose()
+          } catch (e) {
+            console.warn('Error cleaning up sequence:', e)
+          }
           sequenceRef.current = null
         }
         
-        await Tone.start()
+        // Stop and reset transport before creating new sequence
+        Tone.Transport.stop()
+        Tone.Transport.cancel()
+        Tone.Transport.position = 0
+        
         console.log('Tone started, Transport state:', Tone.Transport.state)
         
-        // Create sequence for 16 steps
+        // Create new sequence for 16 steps
         sequenceRef.current = new Tone.Sequence(
           (time, step) => {
             setCurrentStep(step)
@@ -100,31 +120,44 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
             }
             if (patternRef.current[step] && synthRef.current) {
               console.log(`Triggering step ${step} at time ${time}`)
-              // Schedule the trigger slightly ahead to avoid timing conflicts
-              synthRef.current.triggerAttackRelease(
-                "C1", 
-                "8n", 
-                time, 
-                velocityRef.current[step]
-              )
+              try {
+                synthRef.current.triggerAttackRelease(
+                  "C1", 
+                  "8n", 
+                  time, 
+                  velocityRef.current[step]
+                )
+              } catch (e) {
+                console.warn('Error triggering synth:', e)
+              }
             }
           },
           Array.from({ length: 16 }, (_, i) => i),
           "16n"
         )
         
+        // Start sequence and transport
         sequenceRef.current.start(0)
-        Tone.Transport.stop()
-        Tone.Transport.position = 0
-        Tone.Transport.start()
+        Tone.Transport.start("+0.1") // Start with small delay to avoid timing issues
         console.log('Transport started, state:', Tone.Transport.state)
-      } else if (!isPlaying && sequenceRef.current) {
+      } else if (!isPlaying) {
         console.log('Stopping playback...')
+        
+        // Stop transport first
         Tone.Transport.stop()
-        Tone.Transport.position = 0
-        sequenceRef.current.stop()
-        sequenceRef.current.dispose()
-        sequenceRef.current = null
+        Tone.Transport.cancel()
+        
+        // Then clean up sequence
+        if (sequenceRef.current) {
+          try {
+            sequenceRef.current.stop()
+            sequenceRef.current.dispose()
+          } catch (e) {
+            console.warn('Error stopping sequence:', e)
+          }
+          sequenceRef.current = null
+        }
+        
         setCurrentStep(-1)
         if (onStepChange) {
           onStepChange(-1)
@@ -133,7 +166,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
     }
     
     handlePlayback()
-  }, [isPlaying]) // Remove pattern and velocity from dependencies to avoid restarts
+  }, [isPlaying, onStepChange]) // Include onStepChange in dependencies
 
   const handleReset = () => {
     setPattern(new Array(16).fill(false))
