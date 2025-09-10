@@ -33,11 +33,12 @@ export default function Oscilloscope({
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   
-  // Store captured waveform data
+  // Store captured waveform data for full bar
   const capturedWaveformRef = useRef<Float32Array | null>(null)
   const lastStepRef = useRef<number>(-1)
-  const waveformHistoryRef = useRef<Float32Array[]>([])
-  const currentPositionRef = useRef<number>(0)
+  const fullBarBufferRef = useRef<Float32Array | null>(null)
+  const writePositionRef = useRef<number>(0)
+  const barDurationRef = useRef<number>(2) // 2 seconds for 16 steps at 120 BPM
 
   // Load and decode audio
   useEffect(() => {
@@ -140,8 +141,21 @@ export default function Oscilloscope({
     if (isSequencerPlaying) {
       // Create and connect Tone.js analyser
       if (!toneAnalyserRef.current) {
-        toneAnalyserRef.current = new Tone.Analyser('waveform', 2048)
+        toneAnalyserRef.current = new Tone.Analyser('waveform', 256)
         Tone.Destination.connect(toneAnalyserRef.current)
+      }
+      
+      // Initialize full bar buffer
+      const sampleRate = 44100
+      const tempo = 120 // BPM
+      const beatsPerBar = 4
+      const secondsPerBeat = 60 / tempo
+      barDurationRef.current = beatsPerBar * secondsPerBeat
+      const bufferSize = Math.floor(sampleRate * barDurationRef.current)
+      
+      if (!fullBarBufferRef.current || fullBarBufferRef.current.length !== bufferSize) {
+        fullBarBufferRef.current = new Float32Array(bufferSize)
+        writePositionRef.current = 0
       }
     } else {
       // Clean up Tone analyser when sequencer stops
@@ -159,12 +173,14 @@ export default function Oscilloscope({
     }
   }, [isSequencerPlaying])
 
-  // Detect when sequence restarts (step 0)
+  // Detect when sequence restarts (step 0) and initialize buffer
   useEffect(() => {
     if (currentStep === 0 && lastStepRef.current !== 0) {
-      // Clear the captured waveform when sequence restarts
-      waveformHistoryRef.current = []
-      currentPositionRef.current = 0
+      // Clear and reinitialize the buffer for new bar
+      const sampleRate = 44100
+      const bufferSize = Math.floor(sampleRate * barDurationRef.current) // Full bar buffer
+      fullBarBufferRef.current = new Float32Array(bufferSize)
+      writePositionRef.current = 0
     }
     lastStepRef.current = currentStep
   }, [currentStep])
@@ -177,7 +193,7 @@ export default function Oscilloscope({
         animationRef.current = null
       }
       // When stopped, keep displaying the last captured waveform
-      if (canvasRef.current && waveformHistoryRef.current.length > 0) {
+      if (canvasRef.current && fullBarBufferRef.current) {
         drawPersistentWaveform()
       }
       return
@@ -192,26 +208,30 @@ export default function Oscilloscope({
     canvas.height = height * window.devicePixelRatio
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
 
-    const bufferLength = 2048
-    const samplesPerStep = Math.floor(bufferLength / 16) // Divide buffer into 16 segments
+    let lastTime = Date.now()
+    const sampleRate = 44100
+    const msPerSample = 1000 / sampleRate
 
     const draw = () => {
       animationRef.current = requestAnimationFrame(draw)
       
+      const currentTime = Date.now()
+      const deltaTime = currentTime - lastTime
+      lastTime = currentTime
+      
+      // Calculate how many samples to write based on elapsed time
+      const samplesToWrite = Math.floor(deltaTime / msPerSample)
+      
       // Get waveform data from Tone.js analyser
-      if (toneAnalyserRef.current) {
+      if (toneAnalyserRef.current && fullBarBufferRef.current) {
         const waveform = toneAnalyserRef.current.getValue() as Float32Array
-        if (waveform.length > 0) {
-          // Store waveform segment
-          const segment = new Float32Array(samplesPerStep)
-          for (let i = 0; i < samplesPerStep; i++) {
-            segment[i] = waveform[i] || 0
-          }
-          
-          // Add to history, limiting to 16 segments
-          waveformHistoryRef.current.push(segment)
-          if (waveformHistoryRef.current.length > 16) {
-            waveformHistoryRef.current.shift()
+        
+        if (waveform.length > 0 && samplesToWrite > 0) {
+          // Write samples to the full bar buffer
+          for (let i = 0; i < samplesToWrite && writePositionRef.current < fullBarBufferRef.current.length; i++) {
+            const waveformIndex = Math.floor((i / samplesToWrite) * waveform.length)
+            fullBarBufferRef.current[writePositionRef.current] = waveform[waveformIndex] || 0
+            writePositionRef.current++
           }
         }
       }
@@ -223,43 +243,46 @@ export default function Oscilloscope({
       // Draw grid
       drawGrid(ctx, canvas.offsetWidth, height)
 
-      // Draw accumulated waveform
-      ctx.lineWidth = lineWidth
-      ctx.strokeStyle = color
-      ctx.beginPath()
+      // Draw the full bar buffer
+      if (fullBarBufferRef.current) {
+        ctx.lineWidth = lineWidth
+        ctx.strokeStyle = color
+        ctx.beginPath()
 
-      const totalSamples = waveformHistoryRef.current.length * samplesPerStep
-      const sliceWidth = canvas.offsetWidth / Math.max(totalSamples, bufferLength)
-      let x = 0
-
-      // Draw all accumulated segments
-      waveformHistoryRef.current.forEach((segment, segmentIndex) => {
-        segment.forEach((sample, sampleIndex) => {
-          const v = (sample + 1) / 2 // Convert from -1,1 to 0,1
-          const y = v * height
-
-          if (segmentIndex === 0 && sampleIndex === 0) {
+        const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
+        
+        for (let x = 0; x < canvas.offsetWidth; x++) {
+          const sampleIndex = Math.floor(x * samplesPerPixel)
+          const sample = fullBarBufferRef.current[sampleIndex] || 0
+          const y = ((sample + 1) / 2) * height
+          
+          if (x === 0) {
             ctx.moveTo(x, y)
           } else {
             ctx.lineTo(x, y)
           }
+        }
 
-          x += sliceWidth
-        })
-      })
+        ctx.stroke()
 
-      // If we don't have enough data, draw a line to the end
-      if (x < canvas.offsetWidth) {
-        ctx.lineTo(canvas.offsetWidth, height / 2)
+        // Add glow effect
+        ctx.shadowBlur = 10
+        ctx.shadowColor = color
+        ctx.stroke()
+        ctx.shadowBlur = 0
+        
+        // Draw progress indicator
+        if (currentStep >= 0) {
+          const progressX = (currentStep / 16) * canvas.offsetWidth
+          ctx.strokeStyle = color
+          ctx.globalAlpha = 0.5
+          ctx.beginPath()
+          ctx.moveTo(progressX, 0)
+          ctx.lineTo(progressX, height)
+          ctx.stroke()
+          ctx.globalAlpha = 1
+        }
       }
-
-      ctx.stroke()
-
-      // Add glow effect
-      ctx.shadowBlur = 10
-      ctx.shadowColor = color
-      ctx.stroke()
-      ctx.shadowBlur = 0
     }
 
     draw()
@@ -269,12 +292,12 @@ export default function Oscilloscope({
         cancelAnimationFrame(animationRef.current)
       }
     }
-  }, [isSequencerPlaying, color, backgroundColor, lineWidth, height])
+  }, [isSequencerPlaying, currentStep, color, backgroundColor, lineWidth, height])
 
   // Helper function to draw persistent waveform when paused
   const drawPersistentWaveform = () => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !fullBarBufferRef.current) return
     
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -291,32 +314,24 @@ export default function Oscilloscope({
     // Draw grid
     drawGrid(ctx, canvas.offsetWidth, height)
 
-    if (waveformHistoryRef.current.length === 0) return
-
-    // Draw the captured waveform
+    // Draw the full bar buffer
     ctx.lineWidth = lineWidth
     ctx.strokeStyle = color
     ctx.beginPath()
 
-    const samplesPerStep = waveformHistoryRef.current[0]?.length || 128
-    const totalSamples = waveformHistoryRef.current.length * samplesPerStep
-    const sliceWidth = canvas.offsetWidth / totalSamples
-    let x = 0
-
-    waveformHistoryRef.current.forEach((segment, segmentIndex) => {
-      segment.forEach((sample, sampleIndex) => {
-        const v = (sample + 1) / 2
-        const y = v * height
-
-        if (segmentIndex === 0 && sampleIndex === 0) {
-          ctx.moveTo(x, y)
-        } else {
-          ctx.lineTo(x, y)
-        }
-
-        x += sliceWidth
-      })
-    })
+    const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
+    
+    for (let x = 0; x < canvas.offsetWidth; x++) {
+      const sampleIndex = Math.floor(x * samplesPerPixel)
+      const sample = fullBarBufferRef.current[sampleIndex] || 0
+      const y = ((sample + 1) / 2) * height
+      
+      if (x === 0) {
+        ctx.moveTo(x, y)
+      } else {
+        ctx.lineTo(x, y)
+      }
+    }
 
     ctx.stroke()
 
