@@ -21,7 +21,7 @@ export default function Oscilloscope({
   currentStep = -1,
   color = '#00ff88',
   backgroundColor = '#0a0a0a',
-  lineWidth = 2,
+  lineWidth = 1,
   height = 120
 }: OscilloscopeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -139,19 +139,19 @@ export default function Oscilloscope({
   // Set up Tone.js analyser when sequencer starts
   useEffect(() => {
     if (isSequencerPlaying) {
-      // Create and connect Tone.js analyser
+      // Create and connect Tone.js analyser with higher resolution
       if (!toneAnalyserRef.current) {
-        toneAnalyserRef.current = new Tone.Analyser('waveform', 256)
+        toneAnalyserRef.current = new Tone.Analyser('waveform', 4096)
         Tone.Destination.connect(toneAnalyserRef.current)
       }
       
-      // Initialize full bar buffer
-      const sampleRate = 44100
-      const tempo = 120 // BPM
+      // Initialize full bar buffer with higher resolution
+      const sampleRate = 48000 // Higher sample rate for better fidelity
+      const tempo = 136 // Current tempo
       const beatsPerBar = 4
       const secondsPerBeat = 60 / tempo
       barDurationRef.current = beatsPerBar * secondsPerBeat
-      const bufferSize = Math.floor(sampleRate * barDurationRef.current)
+      const bufferSize = Math.floor(sampleRate * barDurationRef.current * 2) // 2x oversampling
       
       if (!fullBarBufferRef.current || fullBarBufferRef.current.length !== bufferSize) {
         fullBarBufferRef.current = new Float32Array(bufferSize)
@@ -208,14 +208,14 @@ export default function Oscilloscope({
     canvas.height = height * window.devicePixelRatio
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
 
-    let lastTime = Date.now()
-    const sampleRate = 44100
-    const msPerSample = 1000 / sampleRate
+    let lastTime = performance.now() // More accurate timing
+    const sampleRate = 48000
+    const msPerSample = 1000 / (sampleRate * 2) // Account for oversampling
 
     const draw = () => {
       animationRef.current = requestAnimationFrame(draw)
       
-      const currentTime = Date.now()
+      const currentTime = performance.now()
       const deltaTime = currentTime - lastTime
       lastTime = currentTime
       
@@ -227,10 +227,18 @@ export default function Oscilloscope({
         const waveform = toneAnalyserRef.current.getValue() as Float32Array
         
         if (waveform.length > 0 && samplesToWrite > 0) {
-          // Write samples to the full bar buffer
+          // Write samples to the full bar buffer with interpolation for smoother waveform
           for (let i = 0; i < samplesToWrite && writePositionRef.current < fullBarBufferRef.current.length; i++) {
-            const waveformIndex = Math.floor((i / samplesToWrite) * waveform.length)
-            fullBarBufferRef.current[writePositionRef.current] = waveform[waveformIndex] || 0
+            const waveformPos = (i / samplesToWrite) * waveform.length
+            const waveformIndex = Math.floor(waveformPos)
+            const fraction = waveformPos - waveformIndex
+            
+            // Linear interpolation between samples for smoother waveform
+            const sample1 = waveform[waveformIndex] || 0
+            const sample2 = waveform[Math.min(waveformIndex + 1, waveform.length - 1)] || 0
+            const interpolatedSample = sample1 + (sample2 - sample1) * fraction
+            
+            fullBarBufferRef.current[writePositionRef.current] = interpolatedSample
             writePositionRef.current++
           }
         }
@@ -243,43 +251,104 @@ export default function Oscilloscope({
       // Draw grid
       drawGrid(ctx, canvas.offsetWidth, height)
 
-      // Draw the full bar buffer
+      // Draw the full bar buffer with enhanced detail
       if (fullBarBufferRef.current) {
+        // Main waveform with anti-aliasing
         ctx.lineWidth = lineWidth
         ctx.strokeStyle = color
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
         ctx.beginPath()
 
         const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
+        let prevY = height / 2
         
         for (let x = 0; x < canvas.offsetWidth; x++) {
-          const sampleIndex = Math.floor(x * samplesPerPixel)
-          const sample = fullBarBufferRef.current[sampleIndex] || 0
-          const y = ((sample + 1) / 2) * height
+          // Average multiple samples per pixel for better representation
+          const startIdx = Math.floor(x * samplesPerPixel)
+          const endIdx = Math.floor((x + 1) * samplesPerPixel)
           
-          if (x === 0) {
-            ctx.moveTo(x, y)
-          } else {
-            ctx.lineTo(x, y)
+          let minSample = 1
+          let maxSample = -1
+          let avgSample = 0
+          let sampleCount = 0
+          
+          for (let i = startIdx; i < endIdx && i < fullBarBufferRef.current.length; i++) {
+            const sample = fullBarBufferRef.current[i] || 0
+            minSample = Math.min(minSample, sample)
+            maxSample = Math.max(maxSample, sample)
+            avgSample += sample
+            sampleCount++
+          }
+          
+          if (sampleCount > 0) {
+            avgSample /= sampleCount
+            
+            // Draw min/max envelope for detail
+            const minY = ((minSample + 1) / 2) * height
+            const maxY = ((maxSample + 1) / 2) * height
+            const avgY = ((avgSample + 1) / 2) * height
+            
+            // Draw thin vertical line showing range
+            if (Math.abs(maxY - minY) > 1) {
+              ctx.globalAlpha = 0.3
+              ctx.beginPath()
+              ctx.moveTo(x, minY)
+              ctx.lineTo(x, maxY)
+              ctx.stroke()
+              ctx.globalAlpha = 1
+            }
+            
+            // Main waveform line
+            if (x === 0) {
+              ctx.beginPath()
+              ctx.moveTo(x, avgY)
+            } else {
+              // Smooth curve between points
+              const cpx = (x - 0.5)
+              const cpy = (prevY + avgY) / 2
+              ctx.quadraticCurveTo(cpx, prevY, x, avgY)
+            }
+            
+            prevY = avgY
           }
         }
 
         ctx.stroke()
 
-        // Add glow effect
-        ctx.shadowBlur = 10
+        // Subtle glow effect
+        ctx.shadowBlur = 4
         ctx.shadowColor = color
+        ctx.globalAlpha = 0.5
         ctx.stroke()
         ctx.shadowBlur = 0
+        ctx.globalAlpha = 1
         
-        // Draw progress indicator
+        // Draw progress indicator with better visibility
         if (currentStep >= 0) {
-          const progressX = (currentStep / 16) * canvas.offsetWidth
+          const progressX = ((currentStep + 0.5) / 16) * canvas.offsetWidth
+          
+          // Subtle glow for progress line
           ctx.strokeStyle = color
-          ctx.globalAlpha = 0.5
+          ctx.lineWidth = 1
+          ctx.globalAlpha = 0.2
+          ctx.shadowBlur = 8
+          ctx.shadowColor = color
           ctx.beginPath()
           ctx.moveTo(progressX, 0)
           ctx.lineTo(progressX, height)
           ctx.stroke()
+          
+          // Main progress line
+          ctx.shadowBlur = 0
+          ctx.globalAlpha = 0.6
+          ctx.strokeStyle = color
+          ctx.setLineDash([2, 4])
+          ctx.beginPath()
+          ctx.moveTo(progressX, 0)
+          ctx.lineTo(progressX, height)
+          ctx.stroke()
+          ctx.setLineDash([])
           ctx.globalAlpha = 1
         }
       }
@@ -314,17 +383,30 @@ export default function Oscilloscope({
     // Draw grid
     drawGrid(ctx, canvas.offsetWidth, height)
 
-    // Draw the full bar buffer
+    // Draw the full bar buffer with enhanced detail
     ctx.lineWidth = lineWidth
     ctx.strokeStyle = color
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
     ctx.beginPath()
 
     const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
     
     for (let x = 0; x < canvas.offsetWidth; x++) {
-      const sampleIndex = Math.floor(x * samplesPerPixel)
-      const sample = fullBarBufferRef.current[sampleIndex] || 0
-      const y = ((sample + 1) / 2) * height
+      // Average multiple samples for smoother display
+      const startIdx = Math.floor(x * samplesPerPixel)
+      const endIdx = Math.min(startIdx + Math.ceil(samplesPerPixel), fullBarBufferRef.current.length)
+      
+      let sum = 0
+      let count = 0
+      
+      for (let i = startIdx; i < endIdx; i++) {
+        sum += fullBarBufferRef.current[i] || 0
+        count++
+      }
+      
+      const avgSample = count > 0 ? sum / count : 0
+      const y = ((avgSample + 1) / 2) * height
       
       if (x === 0) {
         ctx.moveTo(x, y)
@@ -335,28 +417,33 @@ export default function Oscilloscope({
 
     ctx.stroke()
 
-    // Add glow effect
-    ctx.shadowBlur = 10
+    // Subtle glow effect
+    ctx.shadowBlur = 3
     ctx.shadowColor = color
+    ctx.globalAlpha = 0.6
     ctx.stroke()
     ctx.shadowBlur = 0
+    ctx.globalAlpha = 1
   }
 
-  // Helper function to draw grid
+  // Helper function to draw grid with beat markers
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'
-    ctx.lineWidth = 1
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)'
+    ctx.lineWidth = 0.5
 
-    // Vertical lines
-    for (let x = 0; x < width; x += width / 10) {
+    // Vertical lines - 16 divisions for steps
+    for (let i = 0; i <= 16; i++) {
+      const x = (i / 16) * width
+      ctx.strokeStyle = i % 4 === 0 ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.03)'
       ctx.beginPath()
       ctx.moveTo(x, 0)
       ctx.lineTo(x, height)
       ctx.stroke()
     }
 
-    // Horizontal lines
-    for (let y = 0; y < height; y += height / 4) {
+    // Horizontal lines - finer grid
+    for (let y = 0; y < height; y += height / 8) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)'
       ctx.beginPath()
       ctx.moveTo(0, y)
       ctx.lineTo(width, y)
@@ -364,11 +451,14 @@ export default function Oscilloscope({
     }
 
     // Center line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
     ctx.beginPath()
     ctx.moveTo(0, height / 2)
     ctx.lineTo(width, height / 2)
     ctx.stroke()
+    ctx.setLineDash([])
   }
 
   return (
