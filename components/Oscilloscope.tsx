@@ -315,12 +315,12 @@ export default function Oscilloscope({
           }
         }
 
+        ctx.globalAlpha = 0.6  // Set dimmer opacity for playback
         ctx.stroke()
 
-        // Dimmer during playback for subtle effect
+        // Add glow effect while maintaining dim opacity
         ctx.shadowBlur = 3
         ctx.shadowColor = color
-        ctx.globalAlpha = 0.6  // Dimmer during playback
         ctx.stroke()
         ctx.shadowBlur = 0
         ctx.globalAlpha = 1
