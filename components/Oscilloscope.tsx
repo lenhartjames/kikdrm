@@ -38,7 +38,8 @@ export default function Oscilloscope({
   const lastStepRef = useRef<number>(-1)
   const fullBarBufferRef = useRef<Float32Array | null>(null)
   const writePositionRef = useRef<number>(0)
-  const barDurationRef = useRef<number>(2) // 2 seconds for 16 steps at 120 BPM
+  const barDurationRef = useRef<number>(2) // 2 seconds for 16 steps at 136 BPM
+  const wasPlayingRef = useRef<boolean>(false)
 
   // Load and decode audio
   useEffect(() => {
@@ -145,18 +146,8 @@ export default function Oscilloscope({
         Tone.Destination.connect(toneAnalyserRef.current)
       }
       
-      // Initialize full bar buffer with higher resolution
-      const sampleRate = 48000 // Higher sample rate for better fidelity
-      const tempo = 136 // Current tempo
-      const beatsPerBar = 4
-      const secondsPerBeat = 60 / tempo
-      barDurationRef.current = beatsPerBar * secondsPerBeat
-      const bufferSize = Math.floor(sampleRate * barDurationRef.current * 2) // 2x oversampling
-      
-      if (!fullBarBufferRef.current || fullBarBufferRef.current.length !== bufferSize) {
-        fullBarBufferRef.current = new Float32Array(bufferSize)
-        writePositionRef.current = 0
-      }
+      // Don't reinitialize buffer here - it's handled in the playback state effect
+      // This preserves the buffer content across pause/resume
     } else {
       // Clean up Tone analyser when sequencer stops
       if (toneAnalyserRef.current) {
@@ -173,17 +164,21 @@ export default function Oscilloscope({
     }
   }, [isSequencerPlaying])
 
-  // Detect when sequence restarts (step 0) and initialize buffer
+  // Clear buffer only when playback starts from stopped state
   useEffect(() => {
-    if (currentStep === 0 && lastStepRef.current !== 0) {
-      // Clear and reinitialize the buffer for new bar
-      const sampleRate = 44100
-      const bufferSize = Math.floor(sampleRate * barDurationRef.current) // Full bar buffer
+    if (isSequencerPlaying && !wasPlayingRef.current) {
+      // Starting playback - clear the buffer
+      const sampleRate = 48000
+      const tempo = 136
+      const beatsPerBar = 4
+      const secondsPerBeat = 60 / tempo
+      barDurationRef.current = beatsPerBar * secondsPerBeat
+      const bufferSize = Math.floor(sampleRate * barDurationRef.current * 2)
       fullBarBufferRef.current = new Float32Array(bufferSize)
       writePositionRef.current = 0
     }
-    lastStepRef.current = currentStep
-  }, [currentStep])
+    wasPlayingRef.current = isSequencerPlaying
+  }, [isSequencerPlaying])
 
   // Animate oscilloscope when playing
   useEffect(() => {
@@ -227,8 +222,8 @@ export default function Oscilloscope({
         const waveform = toneAnalyserRef.current.getValue() as Float32Array
         
         if (waveform.length > 0 && samplesToWrite > 0) {
-          // Write samples to the full bar buffer with interpolation for smoother waveform
-          for (let i = 0; i < samplesToWrite && writePositionRef.current < fullBarBufferRef.current.length; i++) {
+          // Write samples to the full bar buffer, wrapping around if needed
+          for (let i = 0; i < samplesToWrite; i++) {
             const waveformPos = (i / samplesToWrite) * waveform.length
             const waveformIndex = Math.floor(waveformPos)
             const fraction = waveformPos - waveformIndex
@@ -238,7 +233,9 @@ export default function Oscilloscope({
             const sample2 = waveform[Math.min(waveformIndex + 1, waveform.length - 1)] || 0
             const interpolatedSample = sample1 + (sample2 - sample1) * fraction
             
-            fullBarBufferRef.current[writePositionRef.current] = interpolatedSample
+            // Wrap around if we've filled the buffer (continuous recording)
+            const bufferIndex = writePositionRef.current % fullBarBufferRef.current.length
+            fullBarBufferRef.current[bufferIndex] = interpolatedSample
             writePositionRef.current++
           }
         }
@@ -291,7 +288,7 @@ export default function Oscilloscope({
             
             // Draw thin vertical line showing range
             if (Math.abs(maxY - minY) > 1) {
-              ctx.globalAlpha = 0.3
+              ctx.globalAlpha = 0.4  // Slightly more visible
               ctx.beginPath()
               ctx.moveTo(x, minY)
               ctx.lineTo(x, maxY)
@@ -316,22 +313,23 @@ export default function Oscilloscope({
 
         ctx.stroke()
 
-        // Subtle glow effect
+        // Subtle glow effect - less transparency for better visibility
         ctx.shadowBlur = 4
         ctx.shadowColor = color
-        ctx.globalAlpha = 0.5
+        ctx.globalAlpha = 0.8
         ctx.stroke()
         ctx.shadowBlur = 0
         ctx.globalAlpha = 1
         
-        // Draw progress indicator with better visibility
-        if (currentStep >= 0) {
-          const progressX = ((currentStep + 0.5) / 16) * canvas.offsetWidth
+        // Draw progress indicator showing position in continuous recording
+        if (writePositionRef.current > 0 && fullBarBufferRef.current) {
+          const progressPercent = (writePositionRef.current % fullBarBufferRef.current.length) / fullBarBufferRef.current.length
+          const progressX = progressPercent * canvas.offsetWidth
           
           // Subtle glow for progress line
           ctx.strokeStyle = color
           ctx.lineWidth = 1
-          ctx.globalAlpha = 0.2
+          ctx.globalAlpha = 0.3
           ctx.shadowBlur = 8
           ctx.shadowColor = color
           ctx.beginPath()
@@ -341,7 +339,7 @@ export default function Oscilloscope({
           
           // Main progress line
           ctx.shadowBlur = 0
-          ctx.globalAlpha = 0.6
+          ctx.globalAlpha = 0.7
           ctx.strokeStyle = color
           ctx.setLineDash([2, 4])
           ctx.beginPath()
@@ -417,13 +415,12 @@ export default function Oscilloscope({
 
     ctx.stroke()
 
-    // Subtle glow effect
+    // Subtle glow effect - full opacity when paused
     ctx.shadowBlur = 3
     ctx.shadowColor = color
-    ctx.globalAlpha = 0.6
+    ctx.globalAlpha = 1
     ctx.stroke()
     ctx.shadowBlur = 0
-    ctx.globalAlpha = 1
   }
 
   // Helper function to draw grid with beat markers
@@ -490,7 +487,7 @@ export default function Oscilloscope({
         SCOPE
       </div>
       <div className="absolute bottom-1 right-1 text-[8px] text-plugin-display-text opacity-50 font-mono">
-        {isSequencerPlaying ? `LIVE [${currentStep + 1}/16]` : 'HOLD'}
+        {isSequencerPlaying ? 'RECORDING' : 'HOLD'}
       </div>
     </div>
   )
