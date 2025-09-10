@@ -220,7 +220,7 @@ export default function Oscilloscope({
             // Linear interpolation between samples for smoother waveform
             const sample1 = waveform[waveformIndex] || 0
             const sample2 = waveform[Math.min(waveformIndex + 1, waveform.length - 1)] || 0
-            const interpolatedSample = (sample1 + (sample2 - sample1) * fraction) * 2.5 // Apply gain to match visual amplitude
+            const interpolatedSample = sample1 + (sample2 - sample1) * fraction
             
             // Wrap around if we've filled the buffer (continuous recording)
             const bufferIndex = writePositionRef.current % fullBarBufferRef.current.length
@@ -247,7 +247,9 @@ export default function Oscilloscope({
         ctx.beginPath()
 
         const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
-        let prevY = height / 2
+        const centerY = height / 2
+        const amplitude = height * 0.4 // Consistent amplitude scaling
+        let prevY = centerY
         
         for (let x = 0; x < canvas.offsetWidth; x++) {
           // Average multiple samples per pixel for better representation
@@ -269,10 +271,6 @@ export default function Oscilloscope({
           
           if (sampleCount > 0) {
             avgSample /= sampleCount
-            
-            // Use consistent scaling for waveform
-            const centerY = height / 2
-            const amplitude = height * 0.4 // Consistent amplitude scaling
             
             // Draw min/max envelope for detail
             const minY = centerY + (minSample * amplitude)
