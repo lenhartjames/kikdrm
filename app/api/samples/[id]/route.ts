@@ -25,10 +25,10 @@ const sampleCache = new Map<string, Blob>()
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sampleId = params.id
+    const { id: sampleId } = await params
     
     // Check if we have a preset for this ID
     const presetKey = samplePresetMap[sampleId]
