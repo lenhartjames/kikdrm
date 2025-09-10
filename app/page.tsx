@@ -33,7 +33,7 @@ function MainInterface() {
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <img 
-            src="/kik-drm-logo.png" 
+            src="/kik-drm-logo.svg" 
             alt="IMG → KIK" 
             className="h-16 w-auto"
           />
