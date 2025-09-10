@@ -375,16 +375,15 @@ export default function Oscilloscope({
     drawGrid(ctx, canvas.offsetWidth, height)
 
     // Draw the full bar buffer with consistent scaling
-    ctx.lineWidth = lineWidth
-    ctx.strokeStyle = color
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-
     const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
     const centerY = height / 2
     const amplitude = height * 0.4 // Same amplitude as during playback
     let prevY = centerY
+    
+    // First pass: Draw the envelope (dimmer)
+    ctx.strokeStyle = color
+    ctx.lineWidth = lineWidth * 0.5
+    ctx.globalAlpha = 0.3
     
     for (let x = 0; x < canvas.offsetWidth; x++) {
       // Average multiple samples for smoother display
@@ -393,38 +392,52 @@ export default function Oscilloscope({
       
       let minSample = 1
       let maxSample = -1
-      let avgSample = 0
-      let count = 0
       
       for (let i = startIdx; i < endIdx; i++) {
         const sample = fullBarBufferRef.current[i] || 0
         minSample = Math.min(minSample, sample)
         maxSample = Math.max(maxSample, sample)
-        avgSample += sample
+      }
+      
+      // Draw min/max envelope for detail
+      if (Math.abs(maxSample - minSample) > 0.01) {
+        const minY = centerY + (minSample * amplitude)
+        const maxY = centerY + (maxSample * amplitude)
+        ctx.beginPath()
+        ctx.moveTo(x, minY)
+        ctx.lineTo(x, maxY)
+        ctx.stroke()
+      }
+    }
+    
+    // Second pass: Draw main waveform at FULL opacity
+    ctx.globalAlpha = 1  // Full opacity for main line
+    ctx.strokeStyle = color
+    ctx.lineWidth = lineWidth
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    
+    prevY = centerY
+    
+    for (let x = 0; x < canvas.offsetWidth; x++) {
+      const startIdx = Math.floor(x * samplesPerPixel)
+      const endIdx = Math.min(startIdx + Math.ceil(samplesPerPixel), fullBarBufferRef.current.length)
+      
+      let avgSample = 0
+      let count = 0
+      
+      for (let i = startIdx; i < endIdx; i++) {
+        avgSample += fullBarBufferRef.current[i] || 0
         count++
       }
       
       if (count > 0) {
         avgSample /= count
-        
-        // Consistent scaling with playback
-        const minY = centerY + (minSample * amplitude)
-        const maxY = centerY + (maxSample * amplitude)
         const avgY = centerY + (avgSample * amplitude)
-        
-        // Draw min/max envelope for detail
-        if (Math.abs(maxY - minY) > 1) {
-          ctx.globalAlpha = 0.6  // Slightly brighter envelope when paused
-          ctx.beginPath()
-          ctx.moveTo(x, minY)
-          ctx.lineTo(x, maxY)
-          ctx.stroke()
-          ctx.globalAlpha = 1
-        }
         
         // Main waveform line
         if (x === 0) {
-          ctx.beginPath()
           ctx.moveTo(x, avgY)
         } else {
           // Smooth curve between points
@@ -437,13 +450,13 @@ export default function Oscilloscope({
       }
     }
 
-    // Full brightness when paused - set BEFORE stroke
-    ctx.globalAlpha = 1  // Full opacity when paused
+    // Draw main stroke at full opacity
     ctx.stroke()
 
-    // Add glow effect at full brightness
-    ctx.shadowBlur = 6
+    // Add bright glow effect
+    ctx.shadowBlur = 8
     ctx.shadowColor = color
+    ctx.globalAlpha = 1
     ctx.stroke()
     ctx.shadowBlur = 0
   }
