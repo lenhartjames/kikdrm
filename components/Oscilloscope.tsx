@@ -7,6 +7,7 @@ interface OscilloscopeProps {
   audioUrl?: string
   isPlaying?: boolean
   isSequencerPlaying?: boolean
+  currentStep?: number
   color?: string
   backgroundColor?: string
   lineWidth?: number
@@ -17,6 +18,7 @@ export default function Oscilloscope({
   audioUrl, 
   isPlaying = false,
   isSequencerPlaying = false,
+  currentStep = -1,
   color = '#00ff88',
   backgroundColor = '#0a0a0a',
   lineWidth = 2,
@@ -30,6 +32,12 @@ export default function Oscilloscope({
   const animationRef = useRef<number | null>(null)
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  
+  // Store captured waveform data
+  const capturedWaveformRef = useRef<Float32Array | null>(null)
+  const lastStepRef = useRef<number>(-1)
+  const waveformHistoryRef = useRef<Float32Array[]>([])
+  const currentPositionRef = useRef<number>(0)
 
   // Load and decode audio
   useEffect(() => {
@@ -151,12 +159,26 @@ export default function Oscilloscope({
     }
   }, [isSequencerPlaying])
 
+  // Detect when sequence restarts (step 0)
+  useEffect(() => {
+    if (currentStep === 0 && lastStepRef.current !== 0) {
+      // Clear the captured waveform when sequence restarts
+      waveformHistoryRef.current = []
+      currentPositionRef.current = 0
+    }
+    lastStepRef.current = currentStep
+  }, [currentStep])
+
   // Animate oscilloscope when playing
   useEffect(() => {
     if (!isSequencerPlaying || !canvasRef.current) {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current)
         animationRef.current = null
+      }
+      // When stopped, keep displaying the last captured waveform
+      if (canvasRef.current && waveformHistoryRef.current.length > 0) {
+        drawPersistentWaveform()
       }
       return
     }
@@ -171,7 +193,7 @@ export default function Oscilloscope({
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
 
     const bufferLength = 2048
-    const dataArray = new Float32Array(bufferLength)
+    const samplesPerStep = Math.floor(bufferLength / 16) // Divide buffer into 16 segments
 
     const draw = () => {
       animationRef.current = requestAnimationFrame(draw)
@@ -180,7 +202,17 @@ export default function Oscilloscope({
       if (toneAnalyserRef.current) {
         const waveform = toneAnalyserRef.current.getValue() as Float32Array
         if (waveform.length > 0) {
-          dataArray.set(waveform)
+          // Store waveform segment
+          const segment = new Float32Array(samplesPerStep)
+          for (let i = 0; i < samplesPerStep; i++) {
+            segment[i] = waveform[i] || 0
+          }
+          
+          // Add to history, limiting to 16 segments
+          waveformHistoryRef.current.push(segment)
+          if (waveformHistoryRef.current.length > 16) {
+            waveformHistoryRef.current.shift()
+          }
         }
       }
 
@@ -191,28 +223,36 @@ export default function Oscilloscope({
       // Draw grid
       drawGrid(ctx, canvas.offsetWidth, height)
 
-      // Draw oscilloscope line
+      // Draw accumulated waveform
       ctx.lineWidth = lineWidth
       ctx.strokeStyle = color
       ctx.beginPath()
 
-      const sliceWidth = canvas.offsetWidth / bufferLength
+      const totalSamples = waveformHistoryRef.current.length * samplesPerStep
+      const sliceWidth = canvas.offsetWidth / Math.max(totalSamples, bufferLength)
       let x = 0
 
-      for (let i = 0; i < bufferLength; i++) {
-        const v = (dataArray[i] + 1) / 2 // Convert from -1,1 to 0,1
-        const y = v * height
+      // Draw all accumulated segments
+      waveformHistoryRef.current.forEach((segment, segmentIndex) => {
+        segment.forEach((sample, sampleIndex) => {
+          const v = (sample + 1) / 2 // Convert from -1,1 to 0,1
+          const y = v * height
 
-        if (i === 0) {
-          ctx.moveTo(x, y)
-        } else {
-          ctx.lineTo(x, y)
-        }
+          if (segmentIndex === 0 && sampleIndex === 0) {
+            ctx.moveTo(x, y)
+          } else {
+            ctx.lineTo(x, y)
+          }
 
-        x += sliceWidth
+          x += sliceWidth
+        })
+      })
+
+      // If we don't have enough data, draw a line to the end
+      if (x < canvas.offsetWidth) {
+        ctx.lineTo(canvas.offsetWidth, height / 2)
       }
 
-      ctx.lineTo(canvas.offsetWidth, height / 2)
       ctx.stroke()
 
       // Add glow effect
@@ -230,6 +270,62 @@ export default function Oscilloscope({
       }
     }
   }, [isSequencerPlaying, color, backgroundColor, lineWidth, height])
+
+  // Helper function to draw persistent waveform when paused
+  const drawPersistentWaveform = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Set canvas size
+    canvas.width = canvas.offsetWidth * window.devicePixelRatio
+    canvas.height = height * window.devicePixelRatio
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
+
+    // Clear canvas
+    ctx.fillStyle = backgroundColor
+    ctx.fillRect(0, 0, canvas.offsetWidth, height)
+
+    // Draw grid
+    drawGrid(ctx, canvas.offsetWidth, height)
+
+    if (waveformHistoryRef.current.length === 0) return
+
+    // Draw the captured waveform
+    ctx.lineWidth = lineWidth
+    ctx.strokeStyle = color
+    ctx.beginPath()
+
+    const samplesPerStep = waveformHistoryRef.current[0]?.length || 128
+    const totalSamples = waveformHistoryRef.current.length * samplesPerStep
+    const sliceWidth = canvas.offsetWidth / totalSamples
+    let x = 0
+
+    waveformHistoryRef.current.forEach((segment, segmentIndex) => {
+      segment.forEach((sample, sampleIndex) => {
+        const v = (sample + 1) / 2
+        const y = v * height
+
+        if (segmentIndex === 0 && sampleIndex === 0) {
+          ctx.moveTo(x, y)
+        } else {
+          ctx.lineTo(x, y)
+        }
+
+        x += sliceWidth
+      })
+    })
+
+    ctx.stroke()
+
+    // Add glow effect
+    ctx.shadowBlur = 10
+    ctx.shadowColor = color
+    ctx.stroke()
+    ctx.shadowBlur = 0
+  }
 
   // Helper function to draw grid
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
@@ -289,7 +385,7 @@ export default function Oscilloscope({
         SCOPE
       </div>
       <div className="absolute bottom-1 right-1 text-[8px] text-plugin-display-text opacity-50 font-mono">
-        {isSequencerPlaying ? 'LIVE' : 'STATIC'}
+        {isSequencerPlaying ? `LIVE [${currentStep + 1}/16]` : 'HOLD'}
       </div>
     </div>
   )

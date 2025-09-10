@@ -10,12 +10,14 @@ interface KickPreviewSectionProps {
   showSequencer?: boolean
   isPlaying?: boolean
   onPlayToggle?: () => void
+  currentStep?: number
 }
 
 export default function KickPreviewSection({ 
   showSequencer = false, 
   isPlaying = false,
-  onPlayToggle 
+  onPlayToggle,
+  currentStep = -1
 }: KickPreviewSectionProps) {
   const { kickSample, isLoading } = useApp()
   const [volume, setVolume] = useState(75)
@@ -115,6 +117,7 @@ export default function KickPreviewSection({
           audioUrl={kickSample?.file_url}
           isPlaying={isPlaying}
           isSequencerPlaying={isPlaying}
+          currentStep={currentStep}
           height={120}
         />
         

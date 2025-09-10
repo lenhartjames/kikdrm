@@ -12,6 +12,7 @@ function MainInterface() {
   const { kickSample, setKickSample, setAnalysisResult } = useApp()
   const [showSequencer, setShowSequencer] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [currentStep, setCurrentStep] = useState(-1)
 
   const handleStartOver = () => {
     setKickSample(null)
@@ -63,6 +64,7 @@ function MainInterface() {
                 showSequencer={showSequencer}
                 isPlaying={isPlaying}
                 onPlayToggle={handlePlay}
+                currentStep={currentStep}
               />
 
               {/* Expandable Sequencer - Inside Card */}
@@ -71,6 +73,7 @@ function MainInterface() {
                   <StepSequencer 
                     isPlaying={isPlaying}
                     onPlayToggle={handlePlay}
+                    onStepChange={setCurrentStep}
                   />
                 </div>
               )}

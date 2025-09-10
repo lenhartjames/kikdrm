@@ -9,9 +9,10 @@ import { useApp } from '@/contexts/AppContext'
 interface StepSequencerProps {
   isPlaying?: boolean
   onPlayToggle?: () => void
+  onStepChange?: (step: number) => void
 }
 
-export default function StepSequencer({ isPlaying = false, onPlayToggle }: StepSequencerProps) {
+export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepChange }: StepSequencerProps) {
   const { kickSample } = useApp()
   const [currentStep, setCurrentStep] = useState(-1)
   const [tempo, setTempo] = useState(136)
@@ -74,6 +75,9 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle }: StepS
         sequenceRef.current = new Tone.Sequence(
           (time, step) => {
             setCurrentStep(step)
+            if (onStepChange) {
+              onStepChange(step)
+            }
             if (pattern[step] && synthRef.current) {
               // Schedule the trigger slightly ahead to avoid timing conflicts
               synthRef.current.triggerAttackRelease(
@@ -99,6 +103,9 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle }: StepS
         sequenceRef.current.dispose()
         sequenceRef.current = null
         setCurrentStep(-1)
+        if (onStepChange) {
+          onStepChange(-1)
+        }
       }
     }
     
