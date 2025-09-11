@@ -1,7 +1,16 @@
 'use client'
 
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useState, useRef } from 'react'
 import { KickSample, AnalysisResult } from '@/types'
+import * as Tone from 'tone'
+
+interface AudioEffectsChain {
+  filter: Tone.Filter | null
+  distortion: Tone.Distortion | null
+  compressor: Tone.Compressor | null
+  gain: Tone.Gain | null
+  envelope: Tone.AmplitudeEnvelope | null
+}
 
 interface AppContextType {
   kickSample: KickSample | null
@@ -10,6 +19,9 @@ interface AppContextType {
   setAnalysisResult: (result: AnalysisResult | null) => void
   isLoading: boolean
   setIsLoading: (loading: boolean) => void
+  aiAnalysis: any | null
+  setAiAnalysis: (analysis: any | null) => void
+  audioEffects: React.MutableRefObject<AudioEffectsChain>
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -18,6 +30,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [kickSample, setKickSample] = useState<KickSample | null>(null)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [aiAnalysis, setAiAnalysis] = useState<any | null>(null)
+  
+  // Shared audio effects chain
+  const audioEffects = useRef<AudioEffectsChain>({
+    filter: null,
+    distortion: null,
+    compressor: null,
+    gain: null,
+    envelope: null
+  })
 
   return (
     <AppContext.Provider value={{
@@ -26,7 +48,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       analysisResult,
       setAnalysisResult,
       isLoading,
-      setIsLoading
+      setIsLoading,
+      aiAnalysis,
+      setAiAnalysis,
+      audioEffects
     }}>
       {children}
     </AppContext.Provider>

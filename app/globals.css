@@ -38,19 +38,19 @@
 }
 
 @layer components {
+  .font-zen-dots {
+    font-family: var(--font-zen-dots), monospace;
+  }
+  
   .plugin-panel {
     @apply bg-plugin-panel border border-plugin-border rounded-lg shadow-panel;
     background-image: linear-gradient(135deg, #242424 0%, #1a1a1a 50%, #242424 100%);
   }
 
   .plugin-knob {
-    @apply relative w-12 h-12 rounded-full bg-plugin-knob shadow-knob cursor-pointer;
-    background-image: radial-gradient(circle at 30% 30%, #5a5a5a, #2a2a2a);
-    transition: transform 0.1s ease;
-  }
-
-  .plugin-knob:active {
-    transform: scale(0.95);
+    @apply relative w-12 h-12 rounded-full bg-plugin-knob cursor-pointer;
+    background-color: #3a3a3a;
+    transform-origin: center center;
   }
 
   .plugin-knob::after {
@@ -63,7 +63,6 @@
     height: 30%;
     background: #00ff88;
     border-radius: 1px;
-    box-shadow: 0 0 4px #00ff88;
   }
 
   .plugin-led {
@@ -157,6 +156,26 @@
 
 .animate-pulse-led {
   animation: pulse-led 1s linear infinite;
+}
+
+/* Volume Slider Styles - Always white thumb */
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background-color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
 }
 
 body {

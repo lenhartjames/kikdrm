@@ -13,6 +13,9 @@ export interface KickSample {
     decay: number // 0-100
     frequency_center: number // Hz
     tonal_character: string
+    attack?: number // 0-100
+    sustain?: number // 0-100
+    release?: number // 0-100
   }
   embedding?: number[]
   created_at: string

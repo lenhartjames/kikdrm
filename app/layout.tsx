@@ -1,11 +1,16 @@
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import { Inter, Zen_Dots } from "next/font/google"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
+const zenDots = Zen_Dots({ 
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-zen-dots"
+})
 
 export const metadata: Metadata = {
-  title: "IMG → KIK - AI-Powered Kick Drum Synthesis",
+  title: "KIK DRM - designer techno",
   description: "Upload any image to create your own designer kick drum with AI-powered synthesis",
   icons: {
     icon: [
@@ -65,7 +70,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={inter.className} suppressHydrationWarning>{children}</body>
+      <body className={`${inter.className} ${zenDots.variable}`} suppressHydrationWarning>{children}</body>
     </html>
   )
 }

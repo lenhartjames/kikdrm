@@ -171,17 +171,22 @@ export default function Oscilloscope({
 
   // Animate oscilloscope when playing
   useEffect(() => {
-    if (!isSequencerPlaying || !canvasRef.current) {
+    if (!isSequencerPlaying) {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current)
         animationRef.current = null
       }
-      // When stopped, keep displaying the last captured waveform
-      if (canvasRef.current && fullBarBufferRef.current) {
-        drawPersistentWaveform()
-      }
+      // When stopped, redraw the waveform at full opacity
+      // Small delay to ensure last samples are captured
+      setTimeout(() => {
+        if (canvasRef.current && fullBarBufferRef.current && writePositionRef.current > 0) {
+          drawWaveform(1.0)
+        }
+      }, 50)
       return
     }
+    
+    if (!canvasRef.current) return
 
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
@@ -237,107 +242,36 @@ export default function Oscilloscope({
       // Draw grid
       drawGrid(ctx, canvas.offsetWidth, height)
 
-      // Draw the full bar buffer with enhanced detail
-      if (fullBarBufferRef.current) {
-        // Main waveform with anti-aliasing
-        ctx.lineWidth = lineWidth
+      // Simply draw the waveform at reduced opacity during playback
+      drawWaveform(0.6)
+      
+      // Draw progress indicator showing position in continuous recording
+      if (writePositionRef.current > 0 && fullBarBufferRef.current) {
+        const progressPercent = (writePositionRef.current % fullBarBufferRef.current.length) / fullBarBufferRef.current.length
+        const progressX = progressPercent * canvas.offsetWidth
+        
+        // Subtle glow for progress line
         ctx.strokeStyle = color
-        ctx.lineCap = 'round'
-        ctx.lineJoin = 'round'
-        ctx.beginPath()
-
-        const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
-        const centerY = height / 2
-        const amplitude = height * 0.4 // Consistent amplitude scaling
-        let prevY = centerY
-        
-        for (let x = 0; x < canvas.offsetWidth; x++) {
-          // Average multiple samples per pixel for better representation
-          const startIdx = Math.floor(x * samplesPerPixel)
-          const endIdx = Math.floor((x + 1) * samplesPerPixel)
-          
-          let minSample = 1
-          let maxSample = -1
-          let avgSample = 0
-          let sampleCount = 0
-          
-          for (let i = startIdx; i < endIdx && i < fullBarBufferRef.current.length; i++) {
-            const sample = fullBarBufferRef.current[i] || 0
-            minSample = Math.min(minSample, sample)
-            maxSample = Math.max(maxSample, sample)
-            avgSample += sample
-            sampleCount++
-          }
-          
-          if (sampleCount > 0) {
-            avgSample /= sampleCount
-            
-            // Draw min/max envelope for detail
-            const minY = centerY + (minSample * amplitude)
-            const maxY = centerY + (maxSample * amplitude)
-            const avgY = centerY + (avgSample * amplitude)
-            
-            // Draw thin vertical line showing range
-            if (Math.abs(maxY - minY) > 1) {
-              ctx.globalAlpha = 0.4  // Slightly more visible
-              ctx.beginPath()
-              ctx.moveTo(x, minY)
-              ctx.lineTo(x, maxY)
-              ctx.stroke()
-              ctx.globalAlpha = 1
-            }
-            
-            // Main waveform line
-            if (x === 0) {
-              ctx.beginPath()
-              ctx.moveTo(x, avgY)
-            } else {
-              // Smooth curve between points
-              const cpx = (x - 0.5)
-              const cpy = (prevY + avgY) / 2
-              ctx.quadraticCurveTo(cpx, prevY, x, avgY)
-            }
-            
-            prevY = avgY
-          }
-        }
-
-        // Draw with dim opacity during playback
-        ctx.globalAlpha = 0.6
-        ctx.shadowBlur = 3
+        ctx.lineWidth = 1
+        ctx.globalAlpha = 0.3
+        ctx.shadowBlur = 8
         ctx.shadowColor = color
+        ctx.beginPath()
+        ctx.moveTo(progressX, 0)
+        ctx.lineTo(progressX, height)
         ctx.stroke()
-        ctx.shadowBlur = 0
-        ctx.globalAlpha = 1
         
-        // Draw progress indicator showing position in continuous recording
-        if (writePositionRef.current > 0 && fullBarBufferRef.current) {
-          const progressPercent = (writePositionRef.current % fullBarBufferRef.current.length) / fullBarBufferRef.current.length
-          const progressX = progressPercent * canvas.offsetWidth
-          
-          // Subtle glow for progress line
-          ctx.strokeStyle = color
-          ctx.lineWidth = 1
-          ctx.globalAlpha = 0.3
-          ctx.shadowBlur = 8
-          ctx.shadowColor = color
-          ctx.beginPath()
-          ctx.moveTo(progressX, 0)
-          ctx.lineTo(progressX, height)
-          ctx.stroke()
-          
-          // Main progress line
-          ctx.shadowBlur = 0
-          ctx.globalAlpha = 0.7
-          ctx.strokeStyle = color
-          ctx.setLineDash([2, 4])
-          ctx.beginPath()
-          ctx.moveTo(progressX, 0)
-          ctx.lineTo(progressX, height)
-          ctx.stroke()
-          ctx.setLineDash([])
-          ctx.globalAlpha = 1
-        }
+        // Main progress line
+        ctx.shadowBlur = 0
+        ctx.globalAlpha = 0.7
+        ctx.strokeStyle = color
+        ctx.setLineDash([2, 4])
+        ctx.beginPath()
+        ctx.moveTo(progressX, 0)
+        ctx.lineTo(progressX, height)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1
       }
     }
 
@@ -350,18 +284,20 @@ export default function Oscilloscope({
     }
   }, [isSequencerPlaying, currentStep, color, backgroundColor, lineWidth, height])
 
-  // Helper function to draw persistent waveform when paused
-  const drawPersistentWaveform = () => {
+  // Helper function to draw waveform (used for both playing and paused states)
+  const drawWaveform = (opacity: number) => {
     const canvas = canvasRef.current
-    if (!canvas || !fullBarBufferRef.current) return
+    if (!canvas || !fullBarBufferRef.current || writePositionRef.current === 0) return
     
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Set canvas size
-    canvas.width = canvas.offsetWidth * window.devicePixelRatio
-    canvas.height = height * window.devicePixelRatio
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
+    // Set canvas size only if needed
+    if (canvas.width !== canvas.offsetWidth * window.devicePixelRatio) {
+      canvas.width = canvas.offsetWidth * window.devicePixelRatio
+      canvas.height = height * window.devicePixelRatio
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio)
+    }
 
     // Clear canvas
     ctx.fillStyle = backgroundColor
@@ -370,41 +306,42 @@ export default function Oscilloscope({
     // Draw grid
     drawGrid(ctx, canvas.offsetWidth, height)
 
-    // Draw the full bar buffer with consistent scaling
-    const samplesPerPixel = fullBarBufferRef.current.length / canvas.offsetWidth
+    // Draw the waveform - use actual data length for consistent scaling
+    const dataLength = Math.min(writePositionRef.current, fullBarBufferRef.current.length)
+    const samplesPerPixel = dataLength / canvas.offsetWidth
     const centerY = height / 2
-    const amplitude = height * 0.4 // Same amplitude as during playback
-    let prevY = centerY
+    const amplitude = height * 0.45
     
-    // Draw main waveform at FULL opacity (no envelope when paused)
-    ctx.globalAlpha = 1  // Full opacity
     ctx.strokeStyle = color
     ctx.lineWidth = lineWidth
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
+    ctx.globalAlpha = opacity
     ctx.beginPath()
+    
+    let prevY = centerY
     
     for (let x = 0; x < canvas.offsetWidth; x++) {
       const startIdx = Math.floor(x * samplesPerPixel)
-      const endIdx = Math.min(startIdx + Math.ceil(samplesPerPixel), fullBarBufferRef.current.length)
+      const endIdx = Math.min(startIdx + Math.ceil(samplesPerPixel), dataLength)
       
       let avgSample = 0
       let count = 0
       
       for (let i = startIdx; i < endIdx; i++) {
-        avgSample += fullBarBufferRef.current[i] || 0
-        count++
+        if (i < dataLength) {
+          avgSample += fullBarBufferRef.current[i] || 0
+          count++
+        }
       }
       
       if (count > 0) {
         avgSample /= count
         const avgY = centerY + (avgSample * amplitude)
         
-        // Main waveform line
         if (x === 0) {
           ctx.moveTo(x, avgY)
         } else {
-          // Smooth curve between points
           const cpx = (x - 0.5)
           const cpy = (prevY + avgY) / 2
           ctx.quadraticCurveTo(cpx, prevY, x, avgY)
@@ -414,10 +351,9 @@ export default function Oscilloscope({
       }
     }
 
-    // Draw main stroke at full opacity with glow
-    ctx.shadowBlur = 8
+    // Draw with glow
+    ctx.shadowBlur = opacity === 1 ? 8 : 3
     ctx.shadowColor = color
-    ctx.globalAlpha = 1
     ctx.stroke()
     ctx.shadowBlur = 0
   }

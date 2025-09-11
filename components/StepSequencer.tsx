@@ -13,7 +13,7 @@ interface StepSequencerProps {
 }
 
 export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepChange }: StepSequencerProps) {
-  const { kickSample } = useApp()
+  const { kickSample, audioEffects } = useApp()
   const [currentStep, setCurrentStep] = useState(-1)
   const [tempo, setTempo] = useState(136)
   const [swing, setSwing] = useState(0)
@@ -60,12 +60,27 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
       playerRef.current = new Tone.Player({
         url: audioUrl,
         onload: () => {
-          console.log('Kick sample loaded:', audioUrl)
+          console.log('Kick sample loaded in sequencer:', audioUrl)
+          // Reconnect when loaded to ensure effects chain is ready
+          if (audioEffects.current.filter) {
+            playerRef.current?.disconnect()
+            playerRef.current?.connect(audioEffects.current.filter)
+            console.log('Connected sequencer to effects chain')
+          }
         },
         onerror: (error) => {
           console.error('Error loading kick sample:', error)
         }
-      }).toDestination()
+      })
+      
+      // Initial connection attempt
+      if (audioEffects.current.filter) {
+        playerRef.current.connect(audioEffects.current.filter)
+        console.log('Connected sequencer to effects chain (initial)')
+      } else {
+        playerRef.current.toDestination()
+        console.log('Connected sequencer directly to destination (no effects chain yet)')
+      }
     }
 
     return () => {
@@ -83,7 +98,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
         playerRef.current = null
       }
     }
-  }, [kickSample])
+  }, [kickSample, audioEffects])
 
   useEffect(() => {
     Tone.Transport.bpm.value = tempo
@@ -126,6 +141,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
             if (patternRef.current[step] && playerRef.current) {
               console.log(`Step ${step}: pattern[${step}]=${patternRef.current[step]}, triggering at time ${time}`)
               try {
+                // No envelope triggering - ADSR modulates parameters instead
                 // Start the player at the scheduled time
                 playerRef.current.start(time)
               } catch (e) {
@@ -153,7 +169,7 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
         // Then clean up sequence
         if (sequenceRef.current) {
           try {
-            sequenceRef.current.stop()
+            sequenceRef.current.stop(0) // Stop at time 0 to avoid negative time errors
             sequenceRef.current.dispose()
           } catch (e) {
             console.warn('Error stopping sequence:', e)
@@ -203,7 +219,8 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
   
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      {/* Header with controls all in one row */}
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <div 
             className={cn("plugin-led", isPlaying ? "on" : "off")} 
@@ -211,80 +228,49 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
               animation: `pulse-led ${pulseDuration}s linear infinite`
             } : undefined}
           />
-          <h2 className="text-lg font-semibold">STEP SEQUENCER</h2>
+          <h2 className="text-lg font-semibold font-zen-dots uppercase">STEP SEQUENCER</h2>
         </div>
         
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">PATTERN</span>
-          <div className="plugin-display px-2 py-1">
-            <span className="font-mono text-xs">
-              {String(currentStep + 1).padStart(2, '0')}/16
-            </span>
+        {/* All controls in one row */}
+        <div className="flex items-center gap-4">
+          {/* Tempo Control */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">TEMPO</label>
+            <input
+              type="range"
+              min="60"
+              max="200"
+              value={tempo}
+              onChange={(e) => setTempo(parseInt(e.target.value))}
+              className="w-20 h-1 bg-plugin-display-bg rounded-lg appearance-none cursor-pointer
+                [&::-webkit-slider-thumb]:appearance-none
+                [&::-webkit-slider-thumb]:w-3
+                [&::-webkit-slider-thumb]:h-3
+                [&::-webkit-slider-thumb]:rounded-full
+                [&::-webkit-slider-thumb]:bg-plugin-led-on"
+            />
+            <div className="plugin-display px-2 py-1 min-w-[2.5rem] text-center">
+              <span className="font-mono text-xs">{tempo}</span>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Transport Controls */}
-      <div className="flex items-center gap-4 mb-6">
-        
-        <button
-          onClick={handleReset}
-          className="plugin-button p-2"
-          title="Reset Pattern"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
-        
-        <button
-          onClick={handleRandomize}
-          className="plugin-button p-2"
-          title="Randomize Pattern"
-        >
-          <Shuffle className="w-4 h-4" />
-        </button>
-
-        <div className="flex-1" />
-
-        {/* Tempo Control */}
-        <div className="flex items-center gap-3">
-          <label className="text-xs">TEMPO</label>
-          <input
-            type="range"
-            min="60"
-            max="200"
-            value={tempo}
-            onChange={(e) => setTempo(parseInt(e.target.value))}
-            className="w-24 h-2 bg-plugin-display-bg rounded-lg appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none
-              [&::-webkit-slider-thumb]:w-3
-              [&::-webkit-slider-thumb]:h-3
-              [&::-webkit-slider-thumb]:rounded-full
-              [&::-webkit-slider-thumb]:bg-plugin-led-on"
-          />
-          <div className="plugin-display px-2 py-1 min-w-[3rem] text-center">
-            <span className="font-mono text-xs">{tempo}</span>
-          </div>
-        </div>
-
-        {/* Swing Control */}
-        <div className="flex items-center gap-3">
-          <label className="text-xs">SWING</label>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={swing}
-            onChange={(e) => setSwing(parseInt(e.target.value))}
-            className="w-24 h-2 bg-plugin-display-bg rounded-lg appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none
-              [&::-webkit-slider-thumb]:w-3
-              [&::-webkit-slider-thumb]:h-3
-              [&::-webkit-slider-thumb]:rounded-full
-              [&::-webkit-slider-thumb]:bg-plugin-led-on"
-          />
-          <div className="plugin-display px-2 py-1 min-w-[3rem] text-center">
-            <span className="font-mono text-xs">{swing}%</span>
-          </div>
+          <div className="w-px h-6 bg-plugin-border" />
+          
+          <button
+            onClick={handleReset}
+            className="plugin-button p-2"
+            title="Reset Pattern"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={handleRandomize}
+            className="plugin-button p-2"
+            title="Shuffle"
+          >
+            <Shuffle className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -344,28 +330,6 @@ export default function StepSequencer({ isPlaying = false, onPlayToggle, onStepC
                 />
               </div>
             ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Pattern Info */}
-      <div className="mt-6 grid grid-cols-3 gap-4">
-        <div className="plugin-display">
-          <div className="font-mono text-xs space-y-1">
-            <div>STEPS: {pattern.filter(Boolean).length}/16</div>
-            <div>DENSITY: {Math.round((pattern.filter(Boolean).length / 16) * 100)}%</div>
-          </div>
-        </div>
-        <div className="plugin-display">
-          <div className="font-mono text-xs space-y-1">
-            <div>TIME: 4/4</div>
-            <div>LENGTH: 1 BAR</div>
-          </div>
-        </div>
-        <div className="plugin-display">
-          <div className="font-mono text-xs space-y-1">
-            <div>MODE: LOOP</div>
-            <div>CHANNEL: KICK</div>
           </div>
         </div>
       </div>
